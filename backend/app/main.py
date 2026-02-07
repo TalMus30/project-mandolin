@@ -16,6 +16,9 @@ from .models import (
     DocumentType,
 )
 
+from .ingestion import IngestionPipeline
+from .agents.graph import run_query
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Project Mandolin",
@@ -34,6 +37,25 @@ app.add_middleware(
 
 # In-memory store for ingestion status (replace with DB in production)
 ingestion_status: dict[str, IngestionStatus] = {}
+
+
+def update_ingestion_status(status: IngestionStatus):
+    """Callback for pipeline progress updates."""
+    ingestion_status[status.document_id] = status
+
+
+def process_document_task(document_id: str, file_path: Path, filename: str):
+    """Background task to process a document."""
+    try:
+        pipeline = IngestionPipeline(on_progress=update_ingestion_status)
+        pipeline.process_document(document_id, file_path, filename)
+    except Exception as e:
+        ingestion_status[document_id] = IngestionStatus(
+            document_id=document_id,
+            filename=filename,
+            status="failed",
+            error=str(e),
+        )
 
 
 @app.get("/")
@@ -87,7 +109,7 @@ async def upload_document(
     ingestion_status[doc_id] = status
     
     # Queue background processing
-    # background_tasks.add_task(process_document, doc_id, file_path)
+    background_tasks.add_task(process_document_task, doc_id, file_path, file.filename)
     
     return {
         "document_id": doc_id,
@@ -115,14 +137,18 @@ async def list_documents():
 @app.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
     """Query the document corpus with natural language."""
-    # Placeholder response - will be implemented with LangGraph agent
-    return QueryResponse(
-        answer="This endpoint will be implemented with the LangGraph agentic RAG pipeline.",
-        citations=[],
-        confidence=0.0,
-        cross_references=[],
-        grounded=False,
-    )
+    try:
+        response = run_query(request.query, request.max_citations)
+        return response
+    except Exception as e:
+        # Return safe error response
+        return QueryResponse(
+            answer=f"An error occurred while processing your query. Please ensure documents have been uploaded and processed.",
+            citations=[],
+            confidence=0.0,
+            cross_references=[],
+            grounded=False,
+        )
 
 
 @app.get("/documents/{document_id}/page/{page_number}")
