@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mandolin-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+
+  # Backend service (uncomment when ready for containerized deployment)
+  # backend:
+  #   build: ./backend
+  #   container_name: mandolin-backend
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - ./data:/app/data
+  #   environment:
+  #     - QDRANT_HOST=qdrant
+  #     - QDRANT_PORT=6333
+  #   depends_on:
+  #     - qdrant
+  #   env_file:
+  #     - .env
+
+volumes:
+  qdrant_data:
