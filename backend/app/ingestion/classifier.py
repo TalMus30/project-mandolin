@@ -8,24 +8,43 @@ import anthropic
 from typing import Optional
 
 from ..config import get_settings
-from ..models import DocumentType
 
 
 class DocumentClassifier:
-    """Classifies documents into types using vision-language model."""
+    """Classifies documents into types using vision-language model.
     
-    CLASSIFICATION_PROMPT = """Analyze this document page and classify it into one of these categories:
+    This classifier is flexible and can identify any document type,
+    not just a predefined set. It analyzes visual characteristics
+    to provide descriptive classification.
+    """
+    
+    CLASSIFICATION_PROMPT = """Analyze this document page and provide a classification.
 
-1. MANUAL - Operating instructions, procedures, maintenance guides with mostly text
-2. ELECTRICAL_SCHEMATIC - Electrical wiring diagrams, circuit diagrams with symbols and connections
-3. MEDIA_LAYOUT - P&ID diagrams, pneumatic layouts, water/fluid line diagrams, physical equipment layouts
+Look at the visual structure and content to determine what type of technical document this is.
 
-Look for these indicators:
-- MANUAL: Numbered steps, paragraphs of text, tables of specifications
-- ELECTRICAL_SCHEMATIC: Electrical symbols, wire connections, terminal blocks, relay logic
-- MEDIA_LAYOUT: Flow lines, valves, tanks, pumps, physical component placement
+Common types include (but are NOT limited to):
+- Operating manual / instruction guide
+- Electrical wiring diagram / schematic
+- P&ID (piping and instrumentation diagram)
+- Pneumatic/hydraulic layout
+- Mechanical assembly drawing
+- Bill of materials / parts list
+- Maintenance schedule
+- Troubleshooting guide
+- Safety documentation
+- Control system diagram
+- Process flow diagram
 
-Respond with ONLY one of these exact words: MANUAL, ELECTRICAL_SCHEMATIC, MEDIA_LAYOUT, or UNKNOWN"""
+Respond with a JSON object:
+{
+  "document_type": "short_snake_case_name",
+  "description": "Brief description of what this document contains",
+  "characteristics": ["key visual feature 1", "key visual feature 2"]
+}
+
+Choose a document_type that accurately describes the content. Use snake_case.
+Examples: "electrical_schematic", "operating_manual", "parts_list", "control_diagram", "safety_guide"
+"""
 
     def __init__(self):
         """Initialize the classifier with Anthropic client."""
@@ -39,7 +58,7 @@ Respond with ONLY one of these exact words: MANUAL, ELECTRICAL_SCHEMATIC, MEDIA_
         image.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
     
-    def classify_page(self, image: Image.Image) -> DocumentType:
+    def classify_page(self, image: Image.Image) -> dict:
         """
         Classify a single page image.
         
@@ -47,14 +66,14 @@ Respond with ONLY one of these exact words: MANUAL, ELECTRICAL_SCHEMATIC, MEDIA_
             image: PIL Image of the document page.
             
         Returns:
-            DocumentType classification.
+            Dict with document_type, description, and characteristics.
         """
         image_b64 = self._image_to_base64(image)
         
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=50,
+                max_tokens=200,
                 messages=[
                     {
                         "role": "user",
@@ -76,27 +95,44 @@ Respond with ONLY one of these exact words: MANUAL, ELECTRICAL_SCHEMATIC, MEDIA_
                 ],
             )
             
-            result = response.content[0].text.strip().upper()
+            result = response.content[0].text.strip()
             
-            # Map response to DocumentType
-            if "MANUAL" in result:
-                return DocumentType.MANUAL
-            elif "ELECTRICAL" in result:
-                return DocumentType.ELECTRICAL_SCHEMATIC
-            elif "MEDIA" in result or "P&ID" in result or "LAYOUT" in result:
-                return DocumentType.MEDIA_LAYOUT
-            else:
-                return DocumentType.UNKNOWN
+            # Parse JSON response
+            import json
+            try:
+                # Extract JSON from response (handle markdown code blocks)
+                if "```" in result:
+                    result = result.split("```")[1]
+                    if result.startswith("json"):
+                        result = result[4:]
+                
+                classification = json.loads(result)
+                return {
+                    "document_type": classification.get("document_type", "unknown"),
+                    "description": classification.get("description", ""),
+                    "characteristics": classification.get("characteristics", []),
+                }
+            except json.JSONDecodeError:
+                # Fallback: extract type from plain text
+                return {
+                    "document_type": "unknown",
+                    "description": result[:200],
+                    "characteristics": [],
+                }
                 
         except Exception as e:
             print(f"Classification error: {e}")
-            return DocumentType.UNKNOWN
+            return {
+                "document_type": "unknown",
+                "description": f"Classification failed: {str(e)}",
+                "characteristics": [],
+            }
     
     def classify_document(
         self, 
         page_images: list[Image.Image],
         sample_pages: int = 3,
-    ) -> DocumentType:
+    ) -> dict:
         """
         Classify an entire document by sampling multiple pages.
         
@@ -105,10 +141,10 @@ Respond with ONLY one of these exact words: MANUAL, ELECTRICAL_SCHEMATIC, MEDIA_
             sample_pages: Number of pages to sample for classification.
             
         Returns:
-            Most common DocumentType from sampled pages.
+            Classification dict with most representative type.
         """
         if not page_images:
-            return DocumentType.UNKNOWN
+            return {"document_type": "unknown", "description": "", "characteristics": []}
         
         # Sample pages from beginning, middle, and end
         total_pages = len(page_images)
@@ -125,12 +161,16 @@ Respond with ONLY one of these exact words: MANUAL, ELECTRICAL_SCHEMATIC, MEDIA_
         # Classify sampled pages
         classifications = []
         for idx in sample_indices:
-            doc_type = self.classify_page(page_images[idx])
-            classifications.append(doc_type)
+            classification = self.classify_page(page_images[idx])
+            if classification["document_type"] != "unknown":
+                classifications.append(classification)
         
-        # Return most common classification (excluding UNKNOWN if possible)
-        non_unknown = [c for c in classifications if c != DocumentType.UNKNOWN]
-        if non_unknown:
-            return max(set(non_unknown), key=non_unknown.count)
+        # Return first valid classification (or combine info from multiple)
+        if classifications:
+            # Use the first classification but note if there are mixed types
+            result = classifications[0]
+            if len(set(c["document_type"] for c in classifications)) > 1:
+                result["description"] += " (Note: Document contains multiple section types)"
+            return result
         
-        return DocumentType.UNKNOWN
+        return {"document_type": "unknown", "description": "", "characteristics": []}

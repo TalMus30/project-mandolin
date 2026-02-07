@@ -113,7 +113,8 @@ class IngestionPipeline:
             
             # Classify document type from sample pages
             page_images = [p.image for p in pages]
-            document_type = self.classifier.classify_document(page_images)
+            classification = self.classifier.classify_document(page_images)
+            document_type = classification["document_type"]
             status.document_type = document_type
             self._update_progress(status)
             

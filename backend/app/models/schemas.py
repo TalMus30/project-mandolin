@@ -1,17 +1,13 @@
 """Pydantic schemas for Project Mandolin."""
 
-from enum import Enum
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-class DocumentType(str, Enum):
-    """Type of technical document."""
-    MANUAL = "manual"
-    ELECTRICAL_SCHEMATIC = "electrical_schematic"
-    MEDIA_LAYOUT = "media_layout"  # P&ID, pneumatic, water lines
-    UNKNOWN = "unknown"
+# DocumentType is now a flexible string instead of enum
+# This allows the classifier to identify any document type dynamically
+DocumentType = str
 
 
 class Document(BaseModel):
@@ -22,9 +18,6 @@ class Document(BaseModel):
     page_count: int = Field(..., description="Total number of pages")
     upload_timestamp: datetime = Field(default_factory=datetime.now)
     processed: bool = Field(default=False)
-    
-    class Config:
-        use_enum_values = True
 
 
 class DocumentChunk(BaseModel):
@@ -38,9 +31,6 @@ class DocumentChunk(BaseModel):
     component_ids: list[str] = Field(default_factory=list, description="Extracted component IDs")
     image_path: Optional[str] = Field(None, description="Path to page image")
     embedding: Optional[list[float]] = Field(None, description="Vector embedding")
-    
-    class Config:
-        use_enum_values = True
 
 
 class Citation(BaseModel):
@@ -51,9 +41,6 @@ class Citation(BaseModel):
     document_type: DocumentType = Field(..., description="Document type")
     relevance_score: float = Field(..., description="Relevance score 0-1")
     snippet: Optional[str] = Field(None, description="Relevant text snippet")
-    
-    class Config:
-        use_enum_values = True
 
 
 class QueryRequest(BaseModel):

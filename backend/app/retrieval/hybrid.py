@@ -89,7 +89,7 @@ class HybridRetriever:
                 document_id=payload.get("document_id", ""),
                 filename=payload.get("filename", ""),
                 page_number=payload.get("page_number", 0),
-                document_type=DocumentType(payload.get("document_type", "unknown")),
+                document_type=payload.get("document_type", "unknown"),
                 relevance_score=result.score,
                 snippet=payload.get("content", "")[:500],
             )
@@ -137,7 +137,7 @@ class HybridRetriever:
                 document_id=payload.get("document_id", ""),
                 filename=payload.get("filename", ""),
                 page_number=payload.get("page_number", 0),
-                document_type=DocumentType(payload.get("document_type", "unknown")),
+                document_type=payload.get("document_type", "unknown"),
                 relevance_score=1.0,  # Exact match
                 snippet=payload.get("content", "")[:500],
             )
